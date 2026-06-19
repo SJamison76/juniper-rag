@@ -136,7 +136,7 @@ ask_books.py:
 
 ## Tested On
 
-- Hardware:  GEEKOM A5 Mini PC, AMD Ryzen 5 7430U, 30GB RAM
+- Hardware:  AMD Ryzen 7, 32GB RAM
 - OS:        Ubuntu 26.04 LTS, kernel 7.0.0-22-generic
 - Ollama:    0.30.9
 - ChromaDB:  1.5.9
