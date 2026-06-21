@@ -2,7 +2,7 @@
 
 A local system for querying Juniper Day One books using natural language. Ask questions about Junos OS configuration and get answers with actual CLI commands and config examples pulled directly from the books.
 
-Includes an experimental AI configurator that can read a live device config, ask you for site-specific values, and apply changes based on the books. See do_configure.py below.
+Includes an AI configurator that connects to live devices and applies changes, and an offline config auditor that critiques configs against the books without touching any device.
 
 ---
 
@@ -19,7 +19,8 @@ Includes an experimental AI configurator that can read a live device config, ask
 
 Embeddings and retrieval run locally. Answer generation requires an internet connection
 to reach the Anthropic API. Your PDF content is sent to Anthropic only as part of the
-query context.
+query context. Prompt caching is used across all scripts to reduce API costs on
+repeated queries.
 
 ---
 
@@ -48,7 +49,7 @@ Never hardcode the key in any script or commit it to git. The .gitignore already
 excludes .env files if you prefer to store the key there instead.
 
 Note: The Anthropic API is a separate paid service from a Claude.ai subscription.
-Costs are minimal for this use case (approximately $0.01 per query depending on model used).
+Costs are minimal — approximately $0.03 to $0.06 per query with prompt caching enabled.
 
 ---
 
@@ -61,7 +62,7 @@ Place your Juniper Day One PDF books in /srv/ftp/dayone, then run:
 
 This will:
 - Create a Python virtual environment
-- Install all dependencies including the Anthropic SDK
+- Install all dependencies including the Anthropic SDK and PyEZ
 - Pull the all-minilm embedding model via Ollama
 - Index all PDFs into the ChromaDB vector database
 
@@ -113,28 +114,67 @@ Example output:
       Specifies the IP address of the neighboring router. Replace with the actual
       IP address of your BGP neighbor.
 
-    set protocols bgp group EBGP authentication key "my_secret_key"
-      Sets the authentication key for the peer group. Replace with a strong,
-      unique password that meets your organization's security policy.
-
-    set protocols bgp group EBGP authentication algorithm md5
-      Specifies MD5 as the authentication algorithm for the peer group.
-
-    set policy-options policy-statement send-direct term 1 from protocol direct
-      Creates a policy statement called send-direct that matches routes learned
-      directly (not through an intermediate router).
-
-    set policy-options policy-statement send-direct term 1 then accept
-      Accepts routes that match the criteria in the previous line.
-
     ============================================================
     SOURCES:
       EX_Series_UpRunning.pdf — p.177
       junos-beginners-guide.pdf — p.9
       ExploreJunosCLI_2ndEd.pdf — p.80
       TW_HardeningJunosDevices_2ndEd.pdf — p.96, p.151
-      TW_HardeningJunosDevices_2ndEd_Checklist.pdf — p.1
     ============================================================
+
+---
+
+## Usage: critique_config.py
+
+Offline config auditor. Reads a config file and critiques it against the indexed
+Day One books. No device connection required. Safe to use on any config.
+
+    python3 critique_config.py <config.txt> [focus]
+
+Examples:
+
+    python3 critique_config.py config.txt
+    python3 critique_config.py config.txt "harden this config"
+    python3 critique_config.py config.txt "review BGP configuration"
+    python3 critique_config.py config.txt "check OSPF setup"
+
+If no focus is given a general best-practice review is performed.
+
+To pull a config from a device for review:
+
+    ssh admin@192.168.1.1 "show configuration | display set" > config.txt
+    python3 critique_config.py config.txt "harden this config"
+
+Example output:
+
+    ============================================================
+     CRITIQUE: config.txt
+    ============================================================
+    SUMMARY
+    Config has 11 hardening issues. Critical gaps include XNM clear-text,
+    no PROTECT-RE filter, and world-readable log files.
+
+    ISSUES
+
+    ISSUE 1: XNM cleartext enabled
+    delete system services xnm-clear-text
+    Cleartext management protocol exposes credentials on the wire.
+
+    ISSUE 2: No SSH hardening configured
+    set system services ssh root-login deny
+    set system services ssh connection-limit 5
+    set system services ssh rate-limit 5
+    Root can log in directly; no connection rate limiting in place.
+
+    ...
+
+    CORRECT
+    Login classes have idle-timeout and login-alarms configured.
+    NETCONF configured with rfc-compliant and yang-compliant flags.
+    Syslog captures auth, firewall, and interactive-commands events.
+    ============================================================
+
+At the end you are offered the option to save the critique to a text file.
 
 ---
 
@@ -157,13 +197,9 @@ referenced against the indexed Day One books. The script runs a commit check on 
 device and shows you the proposed changes before asking for confirmation. Nothing is
 applied until you type yes.
 
-Requires PyEZ and NETCONF enabled on the device:
+Requires NETCONF enabled on the device:
 
     set system services netconf ssh
-
-Install PyEZ into the virtual environment:
-
-    ./juniper-env/bin/pip install junos-eznc
 
 Run it:
 
@@ -195,59 +231,42 @@ Example session:
     ✅ Retrieved config (4221 characters)
 
     🔍 Searching knowledge base for: harden this switch
-    ✅ Found 6 relevant chunk(s) from 3 source(s)
+    ✅ Found 12 relevant chunk(s) from 3 source(s)
 
     🤖 Analysing task requirements...
+    💾 Cache written: 3892 tokens cached for next run
 
     ============================================================
      I NEED A FEW VALUES TO COMPLETE THIS TASK
      Leave blank to skip optional items.
     ============================================================
 
-      What is the IP address of the TACACS+ server? (e.g. 192.168.1.10) [optional]: 192.168.10.1
-      What is the TACACS+ shared secret key? (e.g. MyT@cacs$ecret123) [optional]:
-      What is the primary NTP server IP address or hostname? (e.g. 192.168.1.20): 1.1.1.1
-      What is the secondary NTP server IP address (if any)? (e.g. 192.168.1.21) [optional]: 2.2.2.2
-      What is the IP address of the remote syslog server? (e.g. 192.168.1.30) [optional]: 192.168.10.30
+      What is the primary NTP server IP address? (e.g. 192.168.1.20): 1.1.1.1
+      What is the IP address of the remote syslog server? (e.g. 192.168.1.30) [optional]: 10.0.0.50
       What is the management subnet permitted to access this device? (e.g. 10.0.0.0/24): 192.168.10.0/24
       What login banner should be displayed at login? [optional]: Authorized access only.
 
     🤖 Generating configuration...
+    💾 Cache hit: 3971 tokens read from cache
 
     ============================================================
      PROPOSED CONFIGURATION CHANGES
     ============================================================
+      delete system services xnm-clear-text
       delete interfaces me0 unit 0 family inet dhcp
-      set interfaces me0 unit 0 family inet address 192.168.10.203/24
-      set routing-options static route 0.0.0.0/0 next-hop 192.168.10.1
       set system login message "Authorized access only."
       set system services ssh root-login deny
       set system services ssh protocol-version v2
       set system services ssh connection-limit 5
-      set system services ssh rate-limit 5
-      delete system services xnm-clear-text
-      set system tacplus-server 192.168.10.1 secret <secret>
-      set system authentication-order [ tacplus password ]
       set system ntp server 1.1.1.1
-      set system ntp server 2.2.2.2
-      set system syslog host 192.168.10.30 any any
-      set system syslog host 192.168.10.30 port 514
+      set system syslog host 10.0.0.50 any any
       set firewall family inet filter PROTECT-RE term ALLOW-MGMT from source-address 192.168.10.0/24
       set firewall family inet filter PROTECT-RE term ALLOW-MGMT from destination-port ssh
       set firewall family inet filter PROTECT-RE term ALLOW-MGMT then accept
-      set firewall family inet filter PROTECT-RE term ALLOW-NETCONF from source-address 192.168.10.0/24
-      set firewall family inet filter PROTECT-RE term ALLOW-NETCONF from destination-port 830
-      set firewall family inet filter PROTECT-RE term ALLOW-NETCONF then accept
-      set firewall family inet filter PROTECT-RE term ALLOW-NTP from source-address 1.1.1.1/32
-      set firewall family inet filter PROTECT-RE term ALLOW-NTP from source-address 2.2.2.2/32
-      set firewall family inet filter PROTECT-RE term ALLOW-NTP from destination-port ntp
-      set firewall family inet filter PROTECT-RE term ALLOW-NTP then accept
-      set firewall family inet filter PROTECT-RE term ALLOW-ICMP from protocol icmp
-      set firewall family inet filter PROTECT-RE term ALLOW-ICMP then accept
       set firewall family inet filter PROTECT-RE term DENY-ALL then discard
       set interfaces me0 unit 0 family inet filter input PROTECT-RE
     ============================================================
-     29 command(s) | Sources: TW_HardeningJunosDevices_2ndEd.pdf, DO_ConfiguringEX_3rdEd.pdf
+     13 command(s) | Sources: TW_HardeningJunosDevices_2ndEd.pdf
     ============================================================
 
     🔍 Running commit check (dry run)...
@@ -258,22 +277,13 @@ Example session:
     📤 Applying configuration...
     ✅ Configuration committed successfully.
 
-    ============================================================
-     DONE
-    ============================================================
-     Task   : harden this switch
-     Device : 192.168.1.1
-     Changes: 29 command(s) applied
-    ============================================================
-
 Claude reads the current config before generating commands so it only produces
 changes for things not already configured. The commit check validates the config
 on the device before anything is applied, and the script rolls back automatically
 if the commit fails.
 
 Always review the warnings section — some commands may be skipped if values were
-not provided or if the sanitiser detected invalid syntax. Apply those manually if
-needed.
+not provided or if the sanitiser detected invalid syntax.
 
 ---
 
@@ -281,6 +291,7 @@ needed.
 
     juniper-ask-books/
     |-- ask_books.py              Query the vector database and generate answers
+    |-- critique_config.py        Offline config auditor — no device connection needed
     |-- do_configure.py           AI configurator — reads device and applies changes
     |-- index_books.py            Index PDF books into ChromaDB
     |-- requirements.txt          Python dependencies
@@ -325,10 +336,17 @@ ask_books.py:
 - MIN_RELEVANCE  L2 distance threshold, lower is stricter (default 1.2)
 - CLAUDE_MODEL   Anthropic model to use (default claude-sonnet-4-6)
 
+critique_config.py:
+- TOP_K          Number of chunks to keep after filtering (default 12)
+- FETCH_K        Number of candidates to fetch before filtering (default 24)
+- MAX_CONTEXT    Max characters of book context sent to Claude (default 12000)
+- MIN_RELEVANCE  L2 distance threshold, lower is stricter (default 1.2)
+- CLAUDE_MODEL   Anthropic model to use (default claude-sonnet-4-6)
+
 do_configure.py:
-- TOP_K          Number of chunks to keep after filtering (default 6)
-- FETCH_K        Number of candidates to fetch before filtering (default 12)
-- MAX_CONTEXT    Max characters of book context sent to Claude (default 6000)
+- TOP_K          Number of chunks to keep after filtering (default 12)
+- FETCH_K        Number of candidates to fetch before filtering (default 24)
+- MAX_CONTEXT    Max characters of book context sent to Claude (default 12000)
 - MIN_RELEVANCE  L2 distance threshold, lower is stricter (default 1.2)
 - CLAUDE_MODEL   Anthropic model to use (default claude-sonnet-4-6)
 - NETCONF_PORT   NETCONF port (default 830)
