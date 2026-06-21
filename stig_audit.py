@@ -38,10 +38,25 @@ severity_filter = sys.argv[2].lower() if len(sys.argv) > 2 else None
 device_type     = os.environ.get("STIG_DEVICE_TYPE")  # passed from start.py
 
 # ── Device type to STIG title keyword mapping ─────────────────────────────────
+# Keywords match against the 'stig' metadata field (STIG title)
+# benchmark_ids are used for cklb generation and informational display
 DEVICE_TYPE_MAP = {
-    "ex":     ["EX Series", "EX Switches"],
-    "srx":    ["SRX Services Gateway", "SRX SG"],
-    "router": ["Juniper Router"],
+    "ex": {
+        "keywords":      ["EX Series", "EX Switches"],
+        "benchmark_ids": ["Juniper_EX_NDM_STIG", "Juniper_EX_L2S_STIG", "Juniper_EX_RTR_STIG"],
+        "label":         "EX Switch (NDM + L2S + RTR)"
+    },
+    "srx": {
+        "keywords":      ["SRX Services Gateway", "SRX SG"],
+        "benchmark_ids": ["Juniper_SRX_SG_NDM_STIG", "Juniper_SRX_SG_ALG_STIG",
+                          "Juniper_SRX_SG_VPN_STIG", "Juniper_SRX_SG_IDPS_STIG"],
+        "label":         "SRX Gateway (NDM + ALG + VPN + IDPS)"
+    },
+    "router": {
+        "keywords":      ["Juniper Router"],
+        "benchmark_ids": ["Juniper_Router_NDM_STIG", "Juniper_Router_RTR_STIG"],
+        "label":         "Router (NDM + RTR)"
+    },
 }
 
 # ── Read config file ──────────────────────────────────────────────────────────
@@ -97,7 +112,7 @@ metadatas = stig_results["metadatas"]
 
 # Apply device type filter in Python (ChromaDB doesn't support substring matching)
 if device_type and device_type in DEVICE_TYPE_MAP:
-    keywords = DEVICE_TYPE_MAP[device_type]
+    keywords = DEVICE_TYPE_MAP[device_type]["keywords"]
     filtered = [
         (doc, meta) for doc, meta in zip(rules, metadatas)
         if any(kw.lower() in meta.get("stig", "").lower() for kw in keywords)
@@ -363,6 +378,15 @@ cklb_status_map = {
     "FAIL": "open",
 }
 
+# Group findings by benchmark_id so each STIG gets its own entry
+from collections import defaultdict
+findings_by_benchmark = defaultdict(list)
+for finding in structured_findings:
+    vuln_id = finding.get("vuln_id", "UNKNOWN")
+    meta    = meta_lookup.get(vuln_id, {})
+    bid     = meta.get("benchmark_id", "UNKNOWN_STIG")
+    findings_by_benchmark[bid].append(finding)
+
 cklb = {
     "title": "Juniper AI STIG Audit",
     "id": timestamp,
@@ -382,58 +406,67 @@ cklb = {
         "web_db_site": "",
         "web_db_instance": ""
     },
-    "stigs": [
-        {
-            "stig_id": "Juniper_AI_Audit",
-            "stig_name": "Juniper AI Audit",
-            "display_name": "Juniper AI Audit",
-            "checks": []
-        }
-    ]
+    "stigs": []
 }
 
-for finding in structured_findings:
-    vuln_id       = finding.get("vuln_id", "UNKNOWN")
-    status        = finding.get("status", "NOT_REVIEWED").upper()
-    justification = finding.get("justification", "")
-    fix           = finding.get("fix", "NONE")
-    meta          = meta_lookup.get(vuln_id, {})
-    severity      = meta.get("severity", "medium")
-    title         = meta.get("title", "")
+for benchmark_id, bfindings in findings_by_benchmark.items():
+    # Get STIG name from first finding's metadata
+    first_meta = meta_lookup.get(bfindings[0].get("vuln_id", ""), {})
+    stig_name  = first_meta.get("stig", benchmark_id)
 
-    cat_map = {"high": "high", "medium": "medium", "low": "low"}
-    cklb_status = cklb_status_map.get(status, "not_reviewed")
+    stig_entry = {
+        "stig_id":      benchmark_id,
+        "stig_name":    stig_name,
+        "display_name": stig_name,
+        "checks":       []
+    }
 
-    cklb["stigs"][0]["checks"].append({
-        "uuid": vuln_id,
-        "stig_uuid": "Juniper_AI_Audit",
-        "group_id": vuln_id,
-        "rule_id": vuln_id,
-        "rule_id_src": vuln_id,
-        "weight": "10.0",
-        "classification": "UNCLASSIFIED",
-        "severity": cat_map.get(severity.lower(), "medium"),
-        "rule_version": vuln_id,
-        "group_title": title,
-        "rule_title": title,
-        "fix_text": fix,
-        "false_positives": "",
-        "false_negatives": "",
-        "discussion": "",
-        "check_content": "",
-        "documentable": False,
-        "mitigations": "",
-        "potential_impact": "",
-        "third_party_tools": "",
-        "mitigation_control": "",
-        "responsibility": "",
-        "ia_controls": "",
-        "status": cklb_status,
-        "finding_details": justification,
-        "comments": fix if cklb_status == "open" else "",
-        "severity_override": "",
-        "severity_justification": ""
-    })
+    for finding in bfindings:
+        vuln_id       = finding.get("vuln_id", "UNKNOWN")
+        status        = finding.get("status", "NOT_REVIEWED").upper()
+        justification = finding.get("justification", "")
+        fix           = finding.get("fix", "NONE")
+        meta          = meta_lookup.get(vuln_id, {})
+        severity      = meta.get("severity", "medium")
+        title         = meta.get("title", "")
+        rule_id       = meta.get("rule_id", vuln_id)
+        rule_version  = meta.get("rule_version", "")
+
+        cat_map     = {"high": "high", "medium": "medium", "low": "low"}
+        cklb_status = cklb_status_map.get(status, "not_reviewed")
+
+        stig_entry["checks"].append({
+            "uuid":                  rule_id,
+            "stig_uuid":             benchmark_id,
+            "group_id":              vuln_id,
+            "rule_id":               rule_id,
+            "rule_id_src":           rule_id,
+            "weight":                "10.0",
+            "classification":        "UNCLASSIFIED",
+            "severity":              cat_map.get(severity.lower(), "medium"),
+            "rule_version":          rule_version,
+            "group_title":           title,
+            "rule_title":            title,
+            "fix_text":              fix,
+            "false_positives":       "",
+            "false_negatives":       "",
+            "discussion":            "",
+            "check_content":         "",
+            "documentable":          False,
+            "mitigations":           "",
+            "potential_impact":      "",
+            "third_party_tools":     "",
+            "mitigation_control":    "",
+            "responsibility":        "",
+            "ia_controls":           "",
+            "status":                cklb_status,
+            "finding_details":       justification,
+            "comments":              fix if cklb_status == "open" else "",
+            "severity_override":     "",
+            "severity_justification": ""
+        })
+
+    cklb["stigs"].append(stig_entry)
 
 with open(cklb_file, "w", encoding="utf-8") as f:
     json.dump(cklb, f, indent=2)

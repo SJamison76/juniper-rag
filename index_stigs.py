@@ -87,9 +87,11 @@ for file_idx, xml_file in enumerate(xml_files, 1):
         print(f"    ⚠️  No vulnerability groups found. Skipping.\n")
         continue
 
-    benchmark  = root.find("xccdf:title", ns)
-    stig_title = benchmark.text if benchmark is not None else filename
+    benchmark      = root.find("xccdf:title", ns)
+    stig_title     = benchmark.text if benchmark is not None else filename
+    benchmark_id   = root.get("id", filename)  # e.g. Juniper_EX_NDM_STIG
     print(f"    STIG : {stig_title}")
+    print(f"    ID   : {benchmark_id}")
     print(f"    Rules: {len(groups)}")
 
     batch_docs, batch_metas, batch_ids = [], [], []
@@ -104,10 +106,12 @@ for file_idx, xml_file in enumerate(xml_files, 1):
             skipped += 1
             continue
 
-        severity = rule.get("severity", "unknown")
-        title    = rule.findtext("xccdf:title", default="No Title", namespaces=ns)
-        check    = rule.findtext(".//xccdf:check-content", default="No Check Content", namespaces=ns)
-        fix      = rule.findtext(".//xccdf:fixtext", default="No Fix Text", namespaces=ns)
+        severity     = rule.get("severity", "unknown")
+        rule_id      = rule.get("id", vuln_id)          # e.g. SV-253878r1028864_rule
+        rule_version = rule.findtext("xccdf:version", default="", namespaces=ns)  # e.g. JUEX-NM-000010
+        title        = rule.findtext("xccdf:title", default="No Title", namespaces=ns)
+        check        = rule.findtext(".//xccdf:check-content", default="No Check Content", namespaces=ns)
+        fix          = rule.findtext(".//xccdf:fixtext", default="No Fix Text", namespaces=ns)
 
         # Skip duplicates already in the collection
         existing = stig_collection.get(ids=[vuln_id])
@@ -125,11 +129,14 @@ for file_idx, xml_file in enumerate(xml_files, 1):
 
         batch_docs.append(document_content)
         batch_metas.append({
-            "vuln_id":  vuln_id,
-            "severity": severity,
-            "title":    title[:200],
-            "stig":     stig_title[:200],
-            "type":     "network_stig"
+            "vuln_id":      vuln_id,
+            "rule_id":      rule_id,
+            "rule_version": rule_version,
+            "severity":     severity,
+            "title":        title[:200],
+            "stig":         stig_title[:200],
+            "benchmark_id": benchmark_id,
+            "type":         "network_stig"
         })
         batch_ids.append(vuln_id)
 

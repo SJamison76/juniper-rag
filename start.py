@@ -239,7 +239,7 @@ def get_config(existing_report_dir=None):
 
 
 def run_stig_audit(config, report_dir):
-    """Run STIG audit with device type and severity selection."""
+    """Run STIG audit with device type and severity selection, then merge into CKLB."""
     print("")
     print("What device type is this?\n")
     print("  1. EX Switch        (NDM + L2S + RTR — ~182 rules)")
@@ -275,6 +275,21 @@ def run_stig_audit(config, report_dir):
         subprocess.run(cmd, env=env)
     except KeyboardInterrupt:
         print("\n\n⚠️  Interrupted.")
+        return
+
+    # ── Auto-merge results into STIG Viewer CKLB ─────────────────────────────
+    audit_txt = os.path.join(report_dir, "stig_audit.txt")
+    if os.path.exists(audit_txt) and device_type:
+        print("\n🔀 Merging results into STIG Viewer checklist...")
+        merge_cmd = [PYTHON, "merge_stig_results.py", audit_txt, device_type]
+        try:
+            subprocess.run(merge_cmd)
+            cklb_out = os.path.join(report_dir, f"stig_results_{device_type}.cklb")
+            if os.path.exists(cklb_out):
+                print(f"✅ STIG Viewer checklist ready: {os.path.basename(cklb_out)}")
+                print(f"   Open in STIG Viewer 3.x: Checklists → Load Checklist")
+        except KeyboardInterrupt:
+            print("\n⚠️  Merge interrupted.")
 
 
 def reindex_books():
