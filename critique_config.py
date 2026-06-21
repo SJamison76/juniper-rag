@@ -139,8 +139,10 @@ print(f"✅ Found {len(relevant)} relevant chunk(s) from {len(sources)} source(s
 print(f"🤖 Asking Claude to critique the config...\n")
 
 system_prompt = (
-    "You are an expert Juniper network engineer performing a configuration audit.\n"
-    "You will be given a Junos device configuration and reference material from Juniper Day One books.\n"
+    "You are an expert network engineer with deep knowledge of multiple vendors "
+    "including Juniper Junos OS, Cisco IOS, IOS XE, NX-OS, and others. "
+    "You are performing a configuration audit.\n"
+    "You will be given a device configuration and reference material from vendor hardening guides.\n"
     "Produce a concise, practical critique. Be brief — one line per point, commands first.\n\n"
     "Structure your output exactly as follows:\n\n"
     "SUMMARY\n"
