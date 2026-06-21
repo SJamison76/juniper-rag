@@ -8,6 +8,7 @@ set -e
 
 VENV_DIR="./juniper-env"
 BOOK_DIR="/srv/ftp/dayone"
+STIG_DIR="/srv/ftp/stigs"
 EMBED_MODEL="all-minilm"
 
 echo ""
@@ -52,6 +53,24 @@ if [ "$PDF_COUNT" -eq 0 ]; then
 fi
 echo "✅ Found $PDF_COUNT PDF(s) in $BOOK_DIR"
 
+# ── Check STIG directory ──────────────────────────────────────────────────────
+if [ ! -d "$STIG_DIR" ]; then
+    echo ""
+    echo "⚠️  STIG directory not found at $STIG_DIR"
+    echo "   Create it and place DISA STIG XML files there:"
+    echo "   sudo mkdir -p $STIG_DIR"
+    echo "   Download STIGs from: https://public.cyber.mil/stigs/downloads/"
+    echo "   STIG indexing is optional — skipping for now."
+else
+    STIG_COUNT=$(find "$STIG_DIR" -name "*.xml" | wc -l)
+    if [ "$STIG_COUNT" -eq 0 ]; then
+        echo "⚠️  No STIG XML files found in $STIG_DIR — skipping STIG indexing."
+        echo "   Download STIGs from: https://public.cyber.mil/stigs/downloads/"
+    else
+        echo "✅ Found $STIG_COUNT STIG XML file(s) in $STIG_DIR"
+    fi
+fi
+
 # ── Create virtual environment ────────────────────────────────────────────────
 echo ""
 echo "🔧 Creating Python virtual environment at $VENV_DIR ..."
@@ -95,20 +114,29 @@ echo "   This will take several minutes depending on book count."
 echo ""
 "$VENV_DIR/bin/python" index_books.py
 
+# ── Index STIGs if available ──────────────────────────────────────────────────
+if [ -d "$STIG_DIR" ]; then
+    STIG_COUNT=$(find "$STIG_DIR" -name "*.xml" | wc -l)
+    if [ "$STIG_COUNT" -gt 0 ]; then
+        echo ""
+        echo "📋 Indexing DISA STIG XML files..."
+        echo "   Already indexed files will be skipped."
+        echo ""
+        "$VENV_DIR/bin/python" index_stigs.py
+    fi
+fi
+
 echo ""
 echo "============================================================"
 echo " ✅ Setup complete!"
 echo ""
-echo " Query the books:"
-echo "   $VENV_DIR/bin/python ask_books.py 'your question here'"
+echo " Launch the menu:"
+echo "   $VENV_DIR/bin/python start.py"
 echo ""
-echo " Interactive chat mode:"
+echo " Or run scripts directly:"
 echo "   $VENV_DIR/bin/python ask_books.py"
-echo ""
-echo " Critique a config file:"
-echo "   $VENV_DIR/bin/python critique_config.py config.txt 'harden this config'"
-echo ""
-echo " Configure a device:"
+echo "   $VENV_DIR/bin/python critique_config.py config.txt"
+echo "   $VENV_DIR/bin/python stig_audit.py config.txt"
 echo "   $VENV_DIR/bin/python do_configure.py 192.168.1.1 'harden this switch'"
 echo "============================================================"
 echo ""

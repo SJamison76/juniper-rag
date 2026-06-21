@@ -1,28 +1,30 @@
 # Juniper Day One - Ask Books
 
-A local system for querying Juniper Day One books using natural language. Ask questions about Junos OS configuration and get answers with actual CLI commands and config examples pulled directly from the books.
-
-Includes an interactive chat mode for follow-up questions, an AI configurator that connects to live devices and applies changes, and an offline config auditor that critiques configs against the books without touching any device.
+A local RAG system for querying Juniper Day One books and DISA STIGs using natural
+language. Ask questions about Junos OS, critique configs against best practices, run
+DoD STIG compliance audits, and apply AI-generated configuration changes to live
+devices — all from a simple menu.
 
 ---
 
 ## How It Works
 
-1. PDF books are chunked and embedded into a local ChromaDB vector database using
-   the all-minilm embedding model running in Ollama. PyMuPDF is used for text
-   extraction to preserve whitespace, indentation, and Junos config block structure.
-   Chunking is line-aware so set commands and config stanzas are never split mid-line.
+1. PDF books and DISA STIG XML files are chunked and embedded into a local ChromaDB
+   vector database using the all-minilm embedding model running in Ollama. PyMuPDF
+   is used for text extraction to preserve whitespace, indentation, and Junos config
+   block structure. Chunking is line-aware so set commands and config stanzas are
+   never split mid-line.
 
 2. When you ask a question, the query is embedded and used to find the most
-   semantically relevant chunks from the books.
+   semantically relevant chunks from the books or STIG rules.
 
 3. The relevant chunks are passed as context to Claude (claude-sonnet-4-6) via the
    Anthropic API, which generates a focused answer with actual Junos CLI commands.
 
 Embeddings and retrieval run locally. Answer generation requires an internet connection
-to reach the Anthropic API. Your PDF content is sent to Anthropic only as part of the
-query context. Prompt caching is used across all scripts to reduce API costs on
-repeated queries.
+to reach the Anthropic API. Your PDF content and config data is sent to Anthropic only
+as part of the query context. Prompt caching is used across all scripts to reduce API
+costs on repeated queries.
 
 ---
 
@@ -33,6 +35,7 @@ repeated queries.
 - Ollama 0.30.9 or later (for embeddings only)
 - 16GB RAM minimum (32GB recommended)
 - Juniper Day One PDF books placed in /srv/ftp/dayone
+- DISA STIG XML files placed in /srv/ftp/stigs (optional, for STIG auditing)
 - Anthropic API key (see API Key Setup below)
 
 ---
@@ -55,6 +58,22 @@ Costs are minimal — approximately $0.03 to $0.06 per query with prompt caching
 
 ---
 
+## STIG Files
+
+DISA STIG XML files are available free from:
+
+    https://public.cyber.mil/stigs/downloads/
+
+Search for Juniper. Place the extracted XML files anywhere under /srv/ftp/stigs.
+The indexer scans all subdirectories automatically.
+
+Create the directory and set permissions:
+
+    sudo mkdir -p /srv/ftp/stigs
+    sudo chown -R $USER:$USER /srv/ftp/stigs
+
+---
+
 ## Setup
 
 Place your Juniper Day One PDF books in /srv/ftp/dayone, then run:
@@ -66,16 +85,37 @@ This will:
 - Create a Python virtual environment
 - Install all dependencies including the Anthropic SDK, PyMuPDF, and PyEZ
 - Pull the all-minilm embedding model via Ollama
-- Index all PDFs into the ChromaDB vector database using PyMuPDF for accurate
-  text extraction with preserved formatting and line-aware chunking
+- Index all PDFs into the ChromaDB vector database
+- Index any STIG XML files found in /srv/ftp/stigs (if present)
 
 Indexing 36 books takes approximately 10 to 20 minutes. Progress is saved after
 each book so if the process is interrupted it will resume where it left off.
 
-If you add new books or want to reindex from scratch:
+---
 
-    rm -rf ~/juniper_vector_db ~/juniper_index_checkpoint.json
-    ./juniper-env/bin/python index_books.py
+## Usage: start.py (recommended)
+
+The easiest way to use the system. Presents a numbered menu for all tools.
+
+    ./juniper-env/bin/python start.py
+
+Menu options:
+
+    ── Query & Audit ─────────────────────────────────────
+    1. Ask a question about Junos (interactive chat)
+    2. Ask a single question about Junos
+    3. Critique a config file against Day One books
+    4. Run a DoD STIG audit on a config file
+
+    ── Configure Devices ─────────────────────────────────
+    5. Configure a live device (do_configure.py)
+
+    ── Indexing & Maintenance ────────────────────────────
+    6. Reindex Day One books (full rebuild)
+    7. Index new STIG files (skips already indexed)
+    8. Reindex ALL STIG files (full rebuild)
+
+    0. Exit
 
 ---
 
@@ -92,48 +132,19 @@ Interactive chat mode (follow-up questions, conversation history maintained):
 
     ./juniper-env/bin/python ask_books.py
 
-Examples:
-
-    ./juniper-env/bin/python ask_books.py "how do I configure a BGP neighbor?"
-    ./juniper-env/bin/python ask_books.py "show me OSPF area configuration on Junos"
-    ./juniper-env/bin/python ask_books.py "how do I configure EVPN VXLAN on an EX switch?"
-
 Example interactive session:
-
-    $ ./juniper-env/bin/python ask_books.py
-    ╔══════════════════════════════════════════════════════════╗
-    ║         Juniper Day One - Interactive Q&A                ║
-    ║  Ask questions about Junos OS. Type 'exit' to quit.      ║
-    ╚══════════════════════════════════════════════════════════╝
 
     Ask a question (or 'exit' to quit): how do I configure OSPF?
 
     📖 Found 10 relevant chunk(s). Asking Claude...
     💾 Cache written: 1842 tokens cached for next run
 
-    ============================================================
-    ANSWER:
-    ============================================================
     EXAMPLE CONFIG:
     set protocols ospf area 0 interface ge-0/0/0.0
     set protocols ospf area 0 interface ge-0/0/1.0
 
-    set protocols ospf area 0 interface ge-0/0/0.0
-      Places ge-0/0/0.0 into OSPF area 0. The .0 is the logical unit number.
-
-    set protocols ospf area 0 interface ge-0/0/1.0
-      Does the same for the second uplink interface.
-    ============================================================
-    SOURCES:
-      Junos4IOS book.pdf — p.21, p.29
-      junos-beginners-guide.pdf — p.227
-    ============================================================
-
     Ask a question (or 'exit' to quit): how do I add authentication to that?
-
-    📖 Found 10 relevant chunk(s). Asking Claude...
     💾 Cache hit: 1842 tokens read from cache
-
     ...
 
 ---
@@ -141,7 +152,7 @@ Example interactive session:
 ## Usage: critique_config.py
 
 Offline config auditor. Reads a config file and critiques it against the indexed
-Day One books. No device connection required. Safe to use on any config.
+Day One books. No device connection required.
 
     ./juniper-env/bin/python critique_config.py <config.txt> [focus]
 
@@ -150,47 +161,51 @@ Examples:
     ./juniper-env/bin/python critique_config.py config.txt
     ./juniper-env/bin/python critique_config.py config.txt "harden this config"
     ./juniper-env/bin/python critique_config.py config.txt "review BGP configuration"
-    ./juniper-env/bin/python critique_config.py config.txt "check OSPF setup"
 
-If no focus is given a general best-practice review is performed.
-
-To pull a config from a device for review:
+To pull a config from a device:
 
     ssh admin@192.168.1.1 "show configuration | display set" > config.txt
-    ./juniper-env/bin/python critique_config.py config.txt "harden this config"
 
-Output is structured as four sections — Summary, Issues (with fix commands),
-Recommendations, and Correct. At the end you are offered the option to save
-the critique to a text file.
+Output is structured as Summary, Issues (with fix commands), Recommendations, and
+Correct. At the end you are offered the option to save the critique to a text file.
 
-Example output:
+---
 
-    ============================================================
-     CRITIQUE: config.txt
-    ============================================================
-    SUMMARY
-    Config has 11 hardening issues. Critical gaps include XNM clear-text,
-    no PROTECT-RE filter, and world-readable log files.
+## Usage: stig_audit.py
 
-    ISSUES
+Evaluates a device config against indexed DISA STIG rules and generates a compliance
+report and remediation script.
 
-    ISSUE 1: XNM cleartext enabled
-    delete system services xnm-clear-text
-    Cleartext management protocol exposes credentials on the wire.
+    ./juniper-env/bin/python stig_audit.py <config.txt> [severity]
 
-    ISSUE 2: No SSH hardening configured
-    set system services ssh root-login deny
-    set system services ssh connection-limit 5
-    set system services ssh rate-limit 5
-    Root can log in directly; no connection rate limiting in place.
+Examples:
 
-    ...
+    ./juniper-env/bin/python stig_audit.py config.txt
+    ./juniper-env/bin/python stig_audit.py config.txt high
+    ./juniper-env/bin/python stig_audit.py config.txt medium
 
-    CORRECT
-    Login classes have idle-timeout and login-alarms configured.
-    NETCONF configured with rfc-compliant and yang-compliant flags.
-    Syslog captures auth, firewall, and interactive-commands events.
-    ============================================================
+Pull the config first:
+
+    ssh admin@192.168.1.1 "show configuration | display set" > config.txt
+
+Outputs two files:
+- config_stig_audit.txt       Full PASS/FAIL report for every rule
+- config_stig_remediation.txt Set/delete commands for all failures
+
+Review the remediation script before applying. Commands can be fed into
+do_configure.py or applied manually.
+
+---
+
+## Usage: index_stigs.py
+
+Indexes DISA STIG XML files into ChromaDB. Scans /srv/ftp/stigs automatically.
+Already indexed files are skipped using a checkpoint file.
+
+    ./juniper-env/bin/python index_stigs.py
+
+Re-run whenever DISA releases a quarterly update — new files are added, existing
+ones are skipped. To force a full reindex use option 8 in start.py.
 
 ---
 
@@ -226,48 +241,46 @@ Examples:
     ./juniper-env/bin/python do_configure.py 192.168.1.1 "harden this switch"
     ./juniper-env/bin/python do_configure.py 192.168.1.1 "configure OSPF on all uplink interfaces"
     ./juniper-env/bin/python do_configure.py 192.168.1.1 "set up NTP with authentication"
-    ./juniper-env/bin/python do_configure.py 192.168.1.1 "disable unused services and secure SSH"
-
-Claude reads the current config before generating commands so it only produces
-changes for things not already configured. The commit check validates the config
-on the device before anything is applied, and the script rolls back automatically
-if the commit fails.
-
-Always review the warnings section — some commands may be skipped if values were
-not provided or if the sanitiser detected invalid syntax.
 
 ---
 
 ## File Structure
 
     juniper-ask-books/
+    |-- start.py                  Menu launcher for all tools
     |-- ask_books.py              Query the books — single question or interactive chat
     |-- critique_config.py        Offline config auditor — no device connection needed
+    |-- stig_audit.py             DoD STIG compliance auditor and remediation generator
     |-- do_configure.py           AI configurator — reads device and applies changes
     |-- index_books.py            Index PDF books into ChromaDB via PyMuPDF
+    |-- index_stigs.py            Index DISA STIG XML files into ChromaDB
     |-- requirements.txt          Python dependencies
     |-- setup.sh                  Automated setup script
     |-- .gitignore                Excludes venv, database, and PDFs from git
     |-- README.md                 This file
     |-- juniper-env/              Python virtual environment (not committed)
     |-- juniper_vector_db/        ChromaDB vector database (not committed)
-    |-- juniper_index_checkpoint.json  Indexing progress tracker (not committed)
+    |-- juniper_index_checkpoint.json       Book indexing progress (not committed)
+    |-- juniper_stig_checkpoint.json        STIG indexing progress (not committed)
 
 ---
 
 ## Re-indexing
 
-To re-index from scratch (for example after adding new books or after upgrading
-index_books.py):
+Books — full rebuild:
 
     rm -rf ~/juniper_vector_db ~/juniper_index_checkpoint.json
     ./juniper-env/bin/python index_books.py
 
-Note: DB_PATH and CHECKPOINT_FILE in index_books.py default to your home directory.
-If you are running as a different user, update those paths at the top of the script.
+STIGs — full rebuild:
 
-To add new books without re-indexing existing ones, just place the new PDFs in
-/srv/ftp/dayone and re-run index_books.py. Already indexed books will be skipped.
+    rm ~/juniper_stig_checkpoint.json
+    ./juniper-env/bin/python index_stigs.py
+
+Or use options 6 and 8 in start.py which handle the cleanup automatically.
+
+Note: DB_PATH and CHECKPOINT_FILE in each script default to your home directory.
+If running as a different user update those paths at the top of the script.
 
 ---
 
@@ -281,6 +294,10 @@ index_books.py:
 - CHUNK_SIZE     Max characters per chunk (default 1200)
 - CHUNK_STEP     Overlap step between chunks (default 900)
 
+index_stigs.py:
+- STIG_DIR       Path to STIG XML files (default /srv/ftp/stigs)
+- DB_PATH        Path to ChromaDB database (default ~/juniper_vector_db)
+
 ask_books.py:
 - TOP_K          Number of chunks to keep after filtering (default 10)
 - FETCH_K        Number of candidates to fetch before filtering (default 20)
@@ -293,6 +310,10 @@ critique_config.py:
 - FETCH_K        Number of candidates to fetch before filtering (default 24)
 - MAX_CONTEXT    Max characters of book context sent to Claude (default 12000)
 - MIN_RELEVANCE  L2 distance threshold, lower is stricter (default 1.2)
+- CLAUDE_MODEL   Anthropic model to use (default claude-sonnet-4-6)
+
+stig_audit.py:
+- BATCH_SIZE     STIG rules evaluated per Claude call (default 5)
 - CLAUDE_MODEL   Anthropic model to use (default claude-sonnet-4-6)
 
 do_configure.py:
