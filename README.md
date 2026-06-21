@@ -54,7 +54,8 @@ Never hardcode the key in any script or commit it to git. The .gitignore already
 excludes .env files if you prefer to store the key there instead.
 
 Note: The Anthropic API is a separate paid service from a Claude.ai subscription.
-Costs are minimal — approximately $0.03 to $0.06 per query with prompt caching enabled.
+Running a full 628-rule STIG audit is expensive. Use device type and severity filters
+to reduce cost — an EX Switch high-severity only audit costs approximately $0.05.
 
 ---
 
@@ -83,7 +84,7 @@ Place your Juniper Day One PDF books in /srv/ftp/dayone, then run:
 
 This will:
 - Create a Python virtual environment
-- Install all dependencies including the Anthropic SDK, PyMuPDF, and PyEZ
+- Install all dependencies including the Anthropic SDK, PyMuPDF, PyEZ, and paramiko
 - Pull the all-minilm embedding model via Ollama
 - Index all PDFs into the ChromaDB vector database
 - Index any STIG XML files found in /srv/ftp/stigs (if present)
@@ -95,9 +96,13 @@ each book so if the process is interrupted it will resume where it left off.
 
 ## Usage: start.py (recommended)
 
-The easiest way to use the system. Presents a numbered menu for all tools.
+The easiest way to use the system. Presents a numbered menu and manages report
+folders automatically.
 
     ./juniper-env/bin/python start.py
+
+The menu shows your three most recent report folders at the top so you can see
+what was last run and what outputs were generated.
 
 Menu options:
 
@@ -106,16 +111,85 @@ Menu options:
     2. Ask a single question about Junos
     3. Critique a config file against Day One books
     4. Run a DoD STIG audit on a config file
+    5. Critique + STIG audit (both, one config pull)
 
     ── Configure Devices ─────────────────────────────────
-    5. Configure a live device (do_configure.py)
+    6. Configure a live device (do_configure.py)
 
     ── Indexing & Maintenance ────────────────────────────
-    6. Reindex Day One books (full rebuild)
-    7. Index new STIG files (skips already indexed)
-    8. Reindex ALL STIG files (full rebuild)
+    7. Reindex Day One books (full rebuild)
+    8. Index new STIG files (skips already indexed)
+    9. Reindex ALL STIG files (full rebuild)
 
     0. Exit
+
+Options 3, 4, and 5 ask how you want to provide the config:
+
+    1. Pull from a live device (SSH) — connects, pulls config, saves to report folder
+    2. Use a config file from a previous report
+    3. Use a config file from this directory
+
+---
+
+## Report Folders
+
+Every audit run creates a timestamped folder under reports/ containing all output
+files for that run. Nothing is scattered across the project directory.
+
+    reports/
+    └── 20260621_143022_192_168_10_203/
+        ├── config.txt              raw device config (pulled via SSH or copied)
+        ├── critique.txt            Day One book critique with issues and fix commands
+        ├── stig_audit.txt          full PASS/FAIL report for every STIG rule
+        ├── stig_remediation.txt    set/delete commands for all failures
+        └── stig_audit.ckl          STIG Viewer checklist (import into DISA STIG Viewer)
+
+The report folder name includes the date, time, and device IP so you can identify
+runs at a glance. The menu header shows your three most recent folders with tags
+indicating what was produced.
+
+The reports/ directory is excluded from git via .gitignore.
+
+---
+
+## STIG Audit Cost Control
+
+The STIG database contains 628 rules across 13 files covering EX switches, SRX
+gateways, routers, VPN, and IDPS. Running all rules against a device is slow and
+expensive. Always use the device type and severity filters.
+
+When running a STIG audit the menu asks two questions:
+
+    What device type is this?
+      1. EX Switch        (NDM + L2S + RTR — ~182 rules)
+      2. SRX Gateway      (NDM + ALG + VPN + IDPS — ~149 rules)
+      3. Router           (NDM + RTR — ~145 rules)
+      4. All rules        (628 rules — slowest, most expensive)
+
+    Filter by severity?
+      1. High only   (CAT I — recommended for quick audits)
+      2. Medium only (CAT II)
+      3. Low only    (CAT III)
+      4. All severities
+
+Recommended for day-to-day use: EX Switch + High only = approximately 30-40 rules,
+8 API batches, cost under $0.10. Full 628-rule audit = 126 batches, cost $1.50+.
+
+---
+
+## STIG Viewer
+
+The .ckl file in each report folder can be imported into DISA STIG Viewer for a
+GUI view with colour-coded CAT I/II/III findings. Download STIG Viewer 3.x free from:
+
+    https://public.cyber.mil/stigs/srg-stig-tools/
+
+In STIG Viewer 3.x: Open Checklists → Import V2 Checklist → select the .ckl file.
+
+The stig_audit.txt and critique.txt files are plain text and can be read with any
+text editor or viewed in the terminal:
+
+    less reports/20260621_143022_192_168_10_203/stig_audit.txt
 
 ---
 
@@ -135,7 +209,6 @@ Interactive chat mode (follow-up questions, conversation history maintained):
 Example interactive session:
 
     Ask a question (or 'exit' to quit): how do I configure OSPF?
-
     📖 Found 10 relevant chunk(s). Asking Claude...
     💾 Cache written: 1842 tokens cached for next run
 
@@ -162,38 +235,25 @@ Examples:
     ./juniper-env/bin/python critique_config.py config.txt "harden this config"
     ./juniper-env/bin/python critique_config.py config.txt "review BGP configuration"
 
-To pull a config from a device:
-
-    ssh admin@192.168.1.1 "show configuration | display set" > config.txt
-
 Output is structured as Summary, Issues (with fix commands), Recommendations, and
-Correct. At the end you are offered the option to save the critique to a text file.
+Correct. When run from start.py output is saved to the report folder automatically.
 
 ---
 
 ## Usage: stig_audit.py
 
-Evaluates a device config against indexed DISA STIG rules and generates a compliance
-report and remediation script.
+Evaluates a device config against indexed DISA STIG rules. Always use the device
+type filter to avoid running unnecessary rules.
 
     ./juniper-env/bin/python stig_audit.py <config.txt> [severity]
 
-Examples:
+Environment variable STIG_DEVICE_TYPE can be set to ex, srx, or router to filter
+rules. This is handled automatically when running from start.py.
 
-    ./juniper-env/bin/python stig_audit.py config.txt
-    ./juniper-env/bin/python stig_audit.py config.txt high
-    ./juniper-env/bin/python stig_audit.py config.txt medium
-
-Pull the config first:
-
-    ssh admin@192.168.1.1 "show configuration | display set" > config.txt
-
-Outputs two files:
-- config_stig_audit.txt       Full PASS/FAIL report for every rule
-- config_stig_remediation.txt Set/delete commands for all failures
-
-Review the remediation script before applying. Commands can be fed into
-do_configure.py or applied manually.
+Outputs three files per run (saved to REPORT_DIR if set, otherwise alongside config):
+- stig_audit.txt          full PASS/FAIL report
+- stig_remediation.txt    set/delete commands for all failures
+- stig_audit.ckl          STIG Viewer checklist
 
 ---
 
@@ -205,7 +265,7 @@ Already indexed files are skipped using a checkpoint file.
     ./juniper-env/bin/python index_stigs.py
 
 Re-run whenever DISA releases a quarterly update — new files are added, existing
-ones are skipped. To force a full reindex use option 8 in start.py.
+ones are skipped. To force a full reindex use option 9 in start.py.
 
 ---
 
@@ -250,16 +310,17 @@ Examples:
     |-- start.py                  Menu launcher for all tools
     |-- ask_books.py              Query the books — single question or interactive chat
     |-- critique_config.py        Offline config auditor — no device connection needed
-    |-- stig_audit.py             DoD STIG compliance auditor and remediation generator
+    |-- stig_audit.py             DoD STIG compliance auditor — generates txt, remediation, and ckl
     |-- do_configure.py           AI configurator — reads device and applies changes
     |-- index_books.py            Index PDF books into ChromaDB via PyMuPDF
     |-- index_stigs.py            Index DISA STIG XML files into ChromaDB
     |-- requirements.txt          Python dependencies
     |-- setup.sh                  Automated setup script
-    |-- .gitignore                Excludes venv, database, and PDFs from git
+    |-- .gitignore                Excludes venv, database, PDFs, and reports from git
     |-- README.md                 This file
     |-- juniper-env/              Python virtual environment (not committed)
     |-- juniper_vector_db/        ChromaDB vector database (not committed)
+    |-- reports/                  Audit report folders, one per run (not committed)
     |-- juniper_index_checkpoint.json       Book indexing progress (not committed)
     |-- juniper_stig_checkpoint.json        STIG indexing progress (not committed)
 
@@ -277,7 +338,7 @@ STIGs — full rebuild:
     rm ~/juniper_stig_checkpoint.json
     ./juniper-env/bin/python index_stigs.py
 
-Or use options 6 and 8 in start.py which handle the cleanup automatically.
+Or use options 7 and 9 in start.py which handle the cleanup automatically.
 
 Note: DB_PATH and CHECKPOINT_FILE in each script default to your home directory.
 If running as a different user update those paths at the top of the script.
@@ -314,6 +375,7 @@ critique_config.py:
 
 stig_audit.py:
 - BATCH_SIZE     STIG rules evaluated per Claude call (default 5)
+- RATE_SLEEP     Seconds between batches (default 1)
 - CLAUDE_MODEL   Anthropic model to use (default claude-sonnet-4-6)
 
 do_configure.py:
