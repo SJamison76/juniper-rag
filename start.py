@@ -236,20 +236,42 @@ def get_config(existing_report_dir=None):
 
 
 def run_stig_audit(config, report_dir):
-    """Run STIG audit with severity selection."""
+    """Run STIG audit with device type and severity selection."""
     print("")
-    print("Filter by severity?")
-    print("  1. All severities")
-    print("  2. High only")
-    print("  3. Medium only")
-    print("  4. Low only")
+    print("What device type is this?\n")
+    print("  1. EX Switch        (NDM + L2S + RTR — ~182 rules)")
+    print("  2. SRX Gateway      (NDM + ALG + VPN + IDPS — ~149 rules)")
+    print("  3. Router           (NDM + RTR — ~145 rules)")
+    print("  4. All rules        (628 rules — slowest, most expensive)")
+    print("")
+    dev_choice = input("  Enter choice (default 1): ").strip()
+    dev_map = {"1": "ex", "2": "srx", "3": "router", "4": None}
+    device_type = dev_map.get(dev_choice, "ex")
+
+    print("")
+    print("Filter by severity?\n")
+    print("  1. High only   (CAT I — recommended for quick audits)")
+    print("  2. Medium only (CAT II)")
+    print("  3. Low only    (CAT III)")
+    print("  4. All severities")
+    print("")
     sev_choice = input("  Enter choice (default 1): ").strip()
-    sev_map = {"2": "high", "3": "medium", "4": "low"}
-    severity = sev_map.get(sev_choice)
+    sev_map = {"1": "high", "2": "medium", "3": "low", "4": None}
+    severity = sev_map.get(sev_choice, "high")
+
+    env = os.environ.copy()
+    env["REPORT_DIR"] = report_dir
+    if device_type:
+        env["STIG_DEVICE_TYPE"] = device_type
+
+    cmd = [PYTHON, "stig_audit.py", config]
     if severity:
-        run("stig_audit.py", config, severity, report_dir=report_dir)
-    else:
-        run("stig_audit.py", config, report_dir=report_dir)
+        cmd.append(severity)
+
+    try:
+        subprocess.run(cmd, env=env)
+    except KeyboardInterrupt:
+        print("\n\n⚠️  Interrupted.")
 
 
 def reindex_books():

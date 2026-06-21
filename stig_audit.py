@@ -33,8 +33,16 @@ if len(sys.argv) < 2:
     print("  ssh admin@192.168.1.1 'show configuration | display set' > config.txt")
     sys.exit(1)
 
-config_file    = sys.argv[1]
+config_file     = sys.argv[1]
 severity_filter = sys.argv[2].lower() if len(sys.argv) > 2 else None
+device_type     = os.environ.get("STIG_DEVICE_TYPE")  # passed from start.py
+
+# ── Device type to STIG title keyword mapping ─────────────────────────────────
+DEVICE_TYPE_MAP = {
+    "ex":     ["EX Series", "EX Switches"],
+    "srx":    ["SRX Services Gateway", "SRX SG"],
+    "router": ["Juniper Router"],
+}
 
 # ── Read config file ──────────────────────────────────────────────────────────
 if not os.path.exists(config_file):
@@ -51,8 +59,9 @@ if not config_text:
 print("")
 print("=" * 60)
 print(f" DoD STIG Configuration Auditor")
-print(f" Config : {config_file}")
-print(f" Filter : {severity_filter if severity_filter else 'all severities'}")
+print(f" Config      : {config_file}")
+print(f" Severity    : {severity_filter if severity_filter else 'all'}")
+print(f" Device type : {device_type if device_type else 'all'}")
 print("=" * 60)
 
 # ── Load STIG rules from ChromaDB ─────────────────────────────────────────────
@@ -66,10 +75,15 @@ except Exception as e:
     print("   Run index_stigs.py first to build the database.")
     sys.exit(1)
 
-# Retrieve rules — optionally filter by severity
+# Retrieve rules — filter by severity and/or device type
+# Build where clause
+where_clauses = [{"type": {"$eq": "network_stig"}}]
 if severity_filter:
+    where_clauses.append({"severity": {"$eq": severity_filter}})
+
+if len(where_clauses) > 1:
     stig_results = stig_collection.get(
-        where={"$and": [{"type": {"$eq": "network_stig"}}, {"severity": {"$eq": severity_filter}}]},
+        where={"$and": where_clauses},
         include=["documents", "metadatas"]
     )
 else:
@@ -80,6 +94,20 @@ else:
 
 rules     = stig_results["documents"]
 metadatas = stig_results["metadatas"]
+
+# Apply device type filter in Python (ChromaDB doesn't support substring matching)
+if device_type and device_type in DEVICE_TYPE_MAP:
+    keywords = DEVICE_TYPE_MAP[device_type]
+    filtered = [
+        (doc, meta) for doc, meta in zip(rules, metadatas)
+        if any(kw.lower() in meta.get("stig", "").lower() for kw in keywords)
+    ]
+    if filtered:
+        rules, metadatas = zip(*filtered)
+        rules     = list(rules)
+        metadatas = list(metadatas)
+    else:
+        print(f"⚠️  No rules matched device type '{device_type}' — using all rules.")
 
 if not rules:
     print("❌ No STIG rules found. Run index_stigs.py first.")
