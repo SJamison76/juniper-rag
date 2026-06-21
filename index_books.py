@@ -65,3 +65,27 @@ for file_idx, file in enumerate(pdf_files, 1):
                 batch_docs.append(chunk)
                 batch_metas.append({"source": file, "page": page_num})
                 batch_ids.append(doc_id)
+                if len(batch_docs) >= BATCH_SIZE:
+                    collection.add(documents=batch_docs, metadatas=batch_metas, ids=batch_ids)
+                    batch_docs, batch_metas, batch_ids = [], [], []
+                    file_chunks += BATCH_SIZE
+                    total_chunks += BATCH_SIZE
+
+            time.sleep(PAGE_SLEEP)
+
+        # Flush remaining batch
+        if batch_docs:
+            collection.add(documents=batch_docs, metadatas=batch_metas, ids=batch_ids)
+            file_chunks += len(batch_docs)
+            total_chunks += len(batch_docs)
+
+        completed.add(file)
+        with open(CHECKPOINT_FILE, "w") as f:
+            json.dump(list(completed), f)
+
+        print(f"    ✅ Done: {file_chunks} chunks indexed\n")
+
+    except Exception as e:
+        print(f"    ❌ Error indexing {file}: {e}\n")
+
+print(f"🎉 Indexing complete! Total chunks: {total_chunks}")
