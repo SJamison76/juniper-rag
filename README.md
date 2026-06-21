@@ -2,6 +2,8 @@
 
 A local system for querying Juniper Day One books using natural language. Ask questions about Junos OS configuration and get answers with actual CLI commands and config examples pulled directly from the books.
 
+Includes an experimental AI configurator that can read a live device config and apply changes based on the books. See do_configure.py below.
+
 ---
 
 ## How It Works
@@ -46,7 +48,7 @@ Never hardcode the key in any script or commit it to git. The .gitignore already
 excludes .env files if you prefer to store the key there instead.
 
 Note: The Anthropic API is a separate paid service from a Claude.ai subscription.
-Costs are minimal for this use case (approximately $0.007 per query with Sonnet 4.6).
+Costs are minimal for this use case (approximately $0.01 per query depending on model used).
 
 ---
 
@@ -68,20 +70,22 @@ each book so if the process is interrupted it will resume where it left off.
 
 ---
 
-## Usage
+## Usage: ask_books.py
 
-    ./juniper-env/bin/python ask_books.py "your question here"
+Ask any question about Junos OS in plain English.
+
+    python3 ask_books.py "your question here"
 
 Examples:
 
-    ./juniper-env/bin/python ask_books.py "how do I configure a BGP neighbor?"
-    ./juniper-env/bin/python ask_books.py "show me OSPF area configuration on Junos"
-    ./juniper-env/bin/python ask_books.py "how do I configure EVPN VXLAN on an EX switch?"
-    ./juniper-env/bin/python ask_books.py "what is the Junos command to check BGP neighbor state?"
+    python3 ask_books.py "how do I configure a BGP neighbor?"
+    python3 ask_books.py "show me OSPF area configuration on Junos"
+    python3 ask_books.py "how do I configure EVPN VXLAN on an EX switch?"
+    python3 ask_books.py "what is the Junos command to check BGP neighbor state?"
 
 Example output:
 
-    $ python ask_books.py "show me a complete EBGP configuration with authentication and route policy on Junos"
+    $ python3 ask_books.py "show me a complete EBGP configuration with authentication and route policy on Junos"
     ============================================================
     ANSWER:
     ============================================================
@@ -134,10 +138,105 @@ Example output:
 
 ---
 
+## Usage: do_configure.py
+
+WARNING: This script connects to a live device and can apply configuration changes.
+Use in a lab environment only. Always review the proposed changes before confirming.
+
+do_configure.py reads the current config from a Junos device via NETCONF, searches
+the book index for relevant guidance, and asks Claude to generate only the commands
+needed to complete the task. It then runs a commit check and asks for confirmation
+before applying anything.
+
+Requires PyEZ and NETCONF enabled on the device:
+
+    set system services netconf ssh
+
+Install PyEZ into the virtual environment:
+
+    ./juniper-env/bin/pip install junos-eznc
+
+Run it:
+
+    ./juniper-env/bin/python do_configure.py <device-ip> "what you want to do"
+
+Examples:
+
+    ./juniper-env/bin/python do_configure.py 192.168.1.1 "harden this switch"
+    ./juniper-env/bin/python do_configure.py 192.168.1.1 "configure OSPF on all uplink interfaces"
+    ./juniper-env/bin/python do_configure.py 192.168.1.1 "set up NTP with authentication"
+    ./juniper-env/bin/python do_configure.py 192.168.1.1 "disable unused services and secure SSH"
+
+Example session:
+
+    $ ./juniper-env/bin/python do_configure.py 192.168.1.1 "harden this switch"
+    ============================================================
+     Juniper AI Configurator
+     Device : 192.168.1.1
+     Task   : harden this switch
+    ============================================================
+
+    Username: admin
+    Password:
+
+    🔌 Connecting to 192.168.1.1 via NETCONF...
+    ✅ Connected. Model: EX2300-24T  Junos: 22.4R3.25
+
+    📥 Pulling current device configuration...
+    ✅ Retrieved config (4721 characters)
+
+    🔍 Searching knowledge base for: harden this switch
+    ✅ Found 6 relevant chunk(s) from 2 source(s)
+
+    🤖 Asking Claude to generate configuration...
+
+    ============================================================
+     PROPOSED CONFIGURATION CHANGES
+    ============================================================
+      delete system services telnet
+      delete system services ftp
+      set system services ssh root-login deny
+      set system services ssh protocol-version v2
+      set system login message "UNAUTHORIZED ACCESS IS PROHIBITED"
+      set system ntp authentication-key 1 type md5 value "$9$abc123"
+      set snmp v3 usm local-engine user netops authentication-sha
+      delete snmp community public
+      set system syslog host 10.0.0.50 any any
+      set system syslog host 10.0.0.50 port 514
+      set protocols lldp interface all
+      set ethernet-switching-options storm-control default
+    ============================================================
+     12 command(s) | Sources: TW_HardeningJunosDevices_2ndEd.pdf
+    ============================================================
+
+    🔍 Running commit check (dry run)...
+    ✅ Commit check passed — configuration is valid.
+
+    Apply this configuration? (yes/no): yes
+
+    📤 Applying configuration...
+    ✅ Configuration committed successfully.
+
+    ============================================================
+     DONE
+    ============================================================
+     Task   : harden this switch
+     Device : 192.168.1.1
+     Changes: 12 command(s) applied
+    ============================================================
+
+Claude reads the current config before generating commands, so it only produces
+changes for things not already configured. If telnet is already disabled it will
+not include that command. The commit check validates the config on the device
+before anything is applied, and the script rolls back automatically if the commit fails.
+
+---
+
 ## File Structure
 
-    juniper-rag/
+    juniper-ask-books/
     |-- ask_books.py              Query the vector database and generate answers
+    |-- do_configure.py           AI configurator — reads device and applies changes
     |-- index_books.py            Index PDF books into ChromaDB
     |-- requirements.txt          Python dependencies
     |-- setup.sh                  Automated setup script
@@ -154,7 +253,10 @@ Example output:
 To re-index from scratch (for example after adding new books):
 
     rm -rf juniper_vector_db juniper_index_checkpoint.json
-    ./juniper-env/bin/python index_books.py
+    python3 index_books.py
+
+Note: DB_PATH and CHECKPOINT_FILE in index_books.py default to your home directory.
+If you are running as a different user, update those paths at the top of the script.
 
 To add new books without re-indexing existing ones, just place the new PDFs in
 /srv/ftp/dayone and re-run index_books.py. Already indexed books will be skipped.
@@ -177,6 +279,14 @@ ask_books.py:
 - MAX_CONTEXT    Max characters of context sent to Claude (default 7000)
 - MIN_RELEVANCE  L2 distance threshold, lower is stricter (default 1.2)
 - CLAUDE_MODEL   Anthropic model to use (default claude-sonnet-4-6)
+
+do_configure.py:
+- TOP_K          Number of chunks to keep after filtering (default 6)
+- FETCH_K        Number of candidates to fetch before filtering (default 12)
+- MAX_CONTEXT    Max characters of book context sent to Claude (default 6000)
+- MIN_RELEVANCE  L2 distance threshold, lower is stricter (default 1.2)
+- CLAUDE_MODEL   Anthropic model to use (default claude-sonnet-4-6)
+- NETCONF_PORT   NETCONF port (default 830)
 
 ---
 
