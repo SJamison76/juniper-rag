@@ -242,10 +242,10 @@ for src, pages in sources.items():
     print(f"  {src} — {page_str}")
 print("=" * 60)
 
-# ── Optionally save report ────────────────────────────────────────────────────
-report_file = config_file.replace(".txt", "_critique.txt").replace(".conf", "_critique.txt")
-if report_file == config_file:
-    report_file = config_file + "_critique.txt"
+# ── Determine output location ─────────────────────────────────────────────────
+report_dir  = os.environ.get("REPORT_DIR", os.path.dirname(os.path.abspath(config_file)))
+base_name   = "critique"
+report_file = os.path.join(report_dir, f"{base_name}.txt")
 
 save = input(f"\nSave critique to {report_file}? (yes/no): ").strip().lower()
 if save == "yes":

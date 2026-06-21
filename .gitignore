@@ -22,4 +22,4 @@ ollama.tgz
 Thumbs.db
 .env
 run.file
-config.txt
+*.txt

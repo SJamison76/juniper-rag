@@ -4,3 +4,4 @@ pymupdf
 anthropic
 python-dotenv
 junos-eznc
+paramiko
