@@ -8,7 +8,6 @@ set -e
 
 VENV_DIR="./juniper-env"
 BOOK_DIR="/srv/ftp/dayone"
-OLLAMA_MODEL="llama3:8b"
 EMBED_MODEL="all-minilm"
 
 echo ""
@@ -66,32 +65,27 @@ echo "📦 Installing Python dependencies..."
 "$VENV_DIR/bin/pip" install -r requirements.txt --quiet
 echo "✅ Dependencies installed."
 
-# ── Pull Ollama models ────────────────────────────────────────────────────────
+# ── Pull Ollama embedding model ───────────────────────────────────────────────
 echo ""
-echo "🤖 Pulling Ollama models (this may take a while)..."
-ollama pull "$OLLAMA_MODEL"
+echo "🤖 Pulling Ollama embedding model..."
 ollama pull "$EMBED_MODEL"
-echo "✅ Models ready."
+echo "✅ Embedding model ready."
 
-# ── Performance warning ───────────────────────────────────────────────────────
+# ── Check Anthropic API key ───────────────────────────────────────────────────
 echo ""
-echo "============================================================"
-echo " ⚠️  PERFORMANCE NOTICE"
-echo "============================================================"
-echo " This system runs inference on CPU only by default."
-echo " Expect 30-90 seconds per query on a modern CPU."
-echo ""
-echo " For fast responses you need one of the following:"
-echo "   - A dedicated NVIDIA/AMD GPU with Ollama GPU support"
-echo "   - An NPU or AI accelerator (Intel Arc, Hailo, etc.)"
-echo "   - An Apple Silicon Mac (Metal acceleration via Ollama)"
-echo ""
-echo " Without GPU/NPU acceleration, the system is functional"
-echo " but slow. Consider a smaller model for faster responses:"
-echo "   ollama pull llama3.2:3b"
-echo " Then update OLLAMA_MODEL in ask_books.py to llama3.2:3b"
-echo "============================================================"
-echo ""
+if [ -z "$ANTHROPIC_API_KEY" ]; then
+    echo "⚠️  ANTHROPIC_API_KEY is not set."
+    echo "   Answer generation requires an Anthropic API key."
+    echo "   Get one at: https://console.anthropic.com"
+    echo ""
+    echo "   Add it to your shell so it is available at every login:"
+    echo "   echo \"export ANTHROPIC_API_KEY='sk-ant-...'\" >> ~/.bashrc"
+    echo "   source ~/.bashrc"
+    echo ""
+    echo "   Then re-run this script, or just start querying if books are indexed."
+else
+    echo "✅ ANTHROPIC_API_KEY is set."
+fi
 
 # ── Index books ───────────────────────────────────────────────────────────────
 echo "📚 Indexing Juniper Day One books into ChromaDB..."

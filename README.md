@@ -12,11 +12,12 @@ A local system for querying Juniper Day One books using natural language. Ask qu
 2. When you ask a question, the query is embedded and used to find the most
    semantically relevant chunks from the books.
 
-3. The relevant chunks are passed as context to llama3:8b running locally in Ollama,
-   which generates a focused answer with actual Junos CLI commands.
+3. The relevant chunks are passed as context to Claude (claude-sonnet-4-6) via the
+   Anthropic API, which generates a focused answer with actual Junos CLI commands.
 
-Everything runs locally. No internet connection required after setup. No data leaves
-the machine.
+Embeddings and retrieval run locally. Answer generation requires an internet connection
+to reach the Anthropic API. Your PDF content is sent to Anthropic only as part of the
+query context.
 
 ---
 
@@ -24,28 +25,28 @@ the machine.
 
 - Ubuntu 22.04 or later (tested on Ubuntu 26.04 LTS, kernel 7.0)
 - Python 3.10 or later
-- Ollama 0.30.9 or later
+- Ollama 0.30.9 or later (for embeddings only)
 - 16GB RAM minimum (32GB recommended)
 - Juniper Day One PDF books placed in /srv/ftp/dayone
+- Anthropic API key (see API Key Setup below)
 
 ---
 
-## Performance Notice
+## API Key Setup
 
-Expect 30 to 90 seconds per query on a modern CPU without hardware acceleration.
+Answer generation uses the Anthropic API. You need an API key from console.anthropic.com.
 
-For fast responses you need one of the following:
+The key is loaded from your shell environment. Add it to ~/.bashrc so it is available
+at every login:
 
-- A dedicated NVIDIA or AMD GPU with Ollama GPU support enabled
-- An NPU or AI accelerator such as Intel Arc, Hailo, or similar
-- An Apple Silicon Mac using Metal acceleration via Ollama
+    echo "export ANTHROPIC_API_KEY='sk-ant-...'" >> ~/.bashrc
+    source ~/.bashrc
 
-Without GPU or NPU acceleration the system is fully functional but slow.
-For faster responses with slightly reduced quality, switch to a smaller model:
+Never hardcode the key in any script or commit it to git. The .gitignore already
+excludes .env files if you prefer to store the key there instead.
 
-    ollama pull llama3.2:3b
-
-Then update the model name in ask_books.py from llama3:8b to llama3.2:3b.
+Note: The Anthropic API is a separate paid service from a Claude.ai subscription.
+Costs are minimal for this use case (approximately $0.007 per query with Sonnet 4.6).
 
 ---
 
@@ -58,8 +59,8 @@ Place your Juniper Day One PDF books in /srv/ftp/dayone, then run:
 
 This will:
 - Create a Python virtual environment
-- Install all dependencies
-- Pull the required Ollama models (llama3:8b and all-minilm)
+- Install all dependencies including the Anthropic SDK
+- Pull the all-minilm embedding model via Ollama
 - Index all PDFs into the ChromaDB vector database
 
 Indexing 30 books takes approximately 10 to 20 minutes. Progress is saved after
@@ -171,16 +172,18 @@ index_books.py:
 - CHUNK_STEP     Step between chunks, controls overlap (default 900)
 
 ask_books.py:
-- TOP_K          Number of chunks to retrieve (default 6)
-- MAX_CONTEXT    Max characters of context sent to LLM (default 7000)
-- MIN_RELEVANCE  L2 distance threshold, lower is stricter (default 1.4)
+- TOP_K          Number of chunks to keep after filtering (default 6)
+- FETCH_K        Number of candidates to fetch before filtering (default 12)
+- MAX_CONTEXT    Max characters of context sent to Claude (default 7000)
+- MIN_RELEVANCE  L2 distance threshold, lower is stricter (default 1.2)
+- CLAUDE_MODEL   Anthropic model to use (default claude-sonnet-4-6)
 
 ---
 
 ## Models Used
 
-- all-minilm    Embedding model, runs fast on CPU
-- llama3:8b     Language model for answer generation, slow without GPU
+- all-minilm         Embedding model, runs locally via Ollama, fast on CPU
+- claude-sonnet-4-6  Language model for answer generation, via Anthropic API
 
 ---
 

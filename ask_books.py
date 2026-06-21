@@ -1,13 +1,28 @@
 import sys
-import requests
+import os
+import anthropic
 import chromadb
 from chromadb.utils import embedding_functions
+from dotenv import load_dotenv
+
+# Load .env file if present (won't override existing environment variables)
+load_dotenv()
+
+# ── API key check ─────────────────────────────────────────────────────────────
+if not os.environ.get("ANTHROPIC_API_KEY"):
+    print("❌ ANTHROPIC_API_KEY is not set.")
+    print("   Add it to your ~/.bashrc:  export ANTHROPIC_API_KEY='sk-ant-...'")
+    print("   Or create a .env file in this directory with that line.")
+    sys.exit(1)
+# ─────────────────────────────────────────────────────────────────────────────
 
 # ── Config ────────────────────────────────────────────────────────────────────
 DB_PATH        = "/home/geekom/juniper_vector_db"
-TOP_K          = 6      # number of chunks to retrieve from ChromaDB
-MAX_CONTEXT    = 7000   # max characters of context sent to the LLM
-MIN_RELEVANCE  = 1.4    # ChromaDB L2 distance ceiling (lower = more similar)
+TOP_K          = 6      # number of chunks to keep after filtering
+FETCH_K        = 12     # fetch more candidates before filtering/dedup
+MAX_CONTEXT    = 7000   # max characters of context sent to Claude
+MIN_RELEVANCE  = 1.2    # ChromaDB L2 distance ceiling (tightened from 1.4)
+CLAUDE_MODEL   = "claude-sonnet-4-6"
 # ─────────────────────────────────────────────────────────────────────────────
 
 if len(sys.argv) < 2:
@@ -39,7 +54,7 @@ except Exception as e:
 try:
     results = collection.query(
         query_texts=[question],
-        n_results=TOP_K,
+        n_results=FETCH_K,   # fetch more, filter down below
         include=["documents", "metadatas", "distances"]
     )
 except Exception as e:
@@ -50,12 +65,20 @@ docs      = results["documents"][0]
 metas     = results["metadatas"][0]
 distances = results["distances"][0]
 
-# Filter by relevance threshold
-relevant = [
-    (doc, meta, dist)
-    for doc, meta, dist in zip(docs, metas, distances)
-    if dist <= MIN_RELEVANCE
-]
+# Filter by relevance threshold and deduplicate by (source, page)
+seen_pages = set()
+relevant = []
+
+for doc, meta, dist in zip(docs, metas, distances):
+    if dist > MIN_RELEVANCE:
+        continue
+    key = (meta.get("source", "unknown"), meta.get("page", "?"))
+    if key in seen_pages:
+        continue
+    seen_pages.add(key)
+    relevant.append((doc, meta, dist))
+    if len(relevant) >= TOP_K:
+        break
 
 if not relevant:
     print("❌ No sufficiently relevant content found. Try different keywords,")
@@ -84,7 +107,7 @@ for doc, meta, dist in relevant:
 
 context = "\n\n---\n\n".join(context_parts)
 
-# ── Build prompt & call Llama3 ────────────────────────────────────────────────
+# ── Build prompt & call Claude ────────────────────────────────────────────────
 system_prompt = (
     "You are an expert Juniper Network Engineer specialising in Junos OS. "
     "Answer the user's question using ONLY the provided text snippets.\n\n"
@@ -102,33 +125,38 @@ system_prompt = (
     "7. Use plain text only, no markdown, no asterisks, no bullet symbols."
 )
 
-prompt = (
+user_prompt = (
     f"Context snippets from Juniper Day One books:\n\n{context}\n\n"
     f"Question: {question}\n\n"
     f"Show the actual Junos CLI commands first, then explain each one clearly:"
 )
 
-print(f"📖 Found {len(relevant)} relevant chunk(s). Generating answer...\n")
+print(f"📖 Found {len(relevant)} relevant chunk(s). Asking Claude...\n")
 
+# ── Claude API call ───────────────────────────────────────────────────────────
 try:
-    response = requests.post(
-        "http://localhost:11434/api/generate",
-        json={
-            "model": "llama3:8b",
-            "prompt": prompt,
-            "system": system_prompt,
-            "stream": False,
-            "options": {"temperature": 0.1}
-        },
-        timeout=180
+    client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from environment
+
+    message = client.messages.create(
+        model=CLAUDE_MODEL,
+        max_tokens=1024,
+        system=system_prompt,
+        messages=[{"role": "user", "content": user_prompt}]
     )
-    response.raise_for_status()
-    answer = response.json().get("response", "No response generated.")
-except requests.exceptions.Timeout:
-    print("❌ Llama3 timed out. The model may be under load — try again.")
+    answer = message.content[0].text
+
+except anthropic.AuthenticationError:
+    print("❌ Invalid API key. Set ANTHROPIC_API_KEY in your environment:")
+    print("   export ANTHROPIC_API_KEY='sk-ant-...'")
+    sys.exit(1)
+except anthropic.RateLimitError:
+    print("❌ Rate limit hit. Wait a moment and try again.")
+    sys.exit(1)
+except anthropic.APIConnectionError:
+    print("❌ Could not reach the Anthropic API. Check your internet connection.")
     sys.exit(1)
 except Exception as e:
-    print(f"❌ Error communicating with Ollama: {e}")
+    print(f"❌ Unexpected error: {e}")
     sys.exit(1)
 
 # ── Output ────────────────────────────────────────────────────────────────────

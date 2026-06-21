@@ -1,4 +1,4 @@
 chromadb==1.5.9
 pypdf==6.13.3
-requests==2.34.2
-ollama==0.6.2
+anthropic
+python-dotenv
