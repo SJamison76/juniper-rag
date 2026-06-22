@@ -7,9 +7,13 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Blank CKLB templates created by STIG Viewer — one per device type
 TEMPLATES = {
-    "ex":     os.path.join(SCRIPT_DIR, "EX_New_Checklist.cklb"),
-    "srx":    os.path.join(SCRIPT_DIR, "SRX_New_Checklist.cklb"),
-    "router": os.path.join(SCRIPT_DIR, "RTR_New_Checklist.cklb"),
+    # Juniper
+    "ex":            os.path.join(SCRIPT_DIR, "EX_New_Checklist.cklb"),
+    "srx":           os.path.join(SCRIPT_DIR, "SRX_New_Checklist.cklb"),
+    "router":        os.path.join(SCRIPT_DIR, "RTR_New_Checklist.cklb"),
+    # Cisco
+    "cisco_switch":  os.path.join(SCRIPT_DIR, "Cisco_Switch_Checklist.cklb"),
+    "cisco_router":  os.path.join(SCRIPT_DIR, "Cisco_Router_Checklist.cklb"),
 }
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -17,7 +21,7 @@ TEMPLATES = {
 if len(sys.argv) < 2:
     print("Usage: python3 merge_stig_results.py <stig_audit.txt> [device_type] [output.cklb]")
     print("")
-    print("Device types: ex, srx, router  (default: ex)")
+    print("Device types: ex, srx, router, cisco_switch, cisco_router  (default: ex)")
     print("")
     print("Examples:")
     print("  python3 merge_stig_results.py reports/.../stig_audit.txt")

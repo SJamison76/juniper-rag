@@ -41,6 +41,7 @@ device_type     = os.environ.get("STIG_DEVICE_TYPE")  # passed from start.py
 # Keywords match against the 'stig' metadata field (STIG title)
 # benchmark_ids are used for cklb generation and informational display
 DEVICE_TYPE_MAP = {
+    # Juniper
     "ex": {
         "keywords":      ["EX Series", "EX Switches"],
         "benchmark_ids": ["Juniper_EX_NDM_STIG", "Juniper_EX_L2S_STIG", "Juniper_EX_RTR_STIG"],
@@ -55,7 +56,27 @@ DEVICE_TYPE_MAP = {
     "router": {
         "keywords":      ["Juniper Router"],
         "benchmark_ids": ["Juniper_Router_NDM_STIG", "Juniper_Router_RTR_STIG"],
-        "label":         "Router (NDM + RTR)"
+        "label":         "Juniper Router (NDM + RTR)"
+    },
+    # Cisco
+    "cisco_switch": {
+        "keywords":      ["Cisco IOS Switch", "Cisco IOS XE Switch", "Cisco NX-OS Switch",
+                          "Cisco IOS XE Switch", "Cisco NX OS Switch"],
+        "benchmark_ids": ["Cisco_IOS_Switch_NDM_STIG", "Cisco_IOS_Switch_L2S_STIG",
+                          "Cisco_IOS_Switch_RTR_STIG", "Cisco_IOS_XE_Switch_NDM_STIG",
+                          "Cisco_IOS_XE_Switch_L2S_STIG", "Cisco_IOS_XE_Switch_RTR_STIG",
+                          "Cisco_NX-OS_Switch_NDM_STIG", "Cisco_NX-OS_Switch_L2S_STIG",
+                          "Cisco_NX-OS_Switch_RTR_STIG"],
+        "label":         "Cisco Switch (IOS + IOS XE + NX-OS)"
+    },
+    "cisco_router": {
+        "keywords":      ["Cisco IOS Router", "Cisco IOS XE Router", "Cisco IOS XR Router",
+                          "Cisco NX OS Switch RTR"],
+        "benchmark_ids": ["Cisco_IOS_Router_NDM_STIG", "Cisco_IOS_Router_RTR_STIG",
+                          "Cisco_IOS-XE_Router_NDM_STIG", "Cisco_IOS-XE_Router_RTR_STIG",
+                          "Cisco_IOS-XR_Router_NDM_STIG", "Cisco_IOS-XR_Router_RTR_STIG",
+                          "Cisco_NX-OS_Switch_RTR_STIG"],
+        "label":         "Cisco Router (IOS + IOS XE + IOS XR)"
     },
 }
 

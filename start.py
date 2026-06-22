@@ -242,13 +242,19 @@ def run_stig_audit(config, report_dir):
     """Run STIG audit with device type and severity selection, then merge into CKLB."""
     print("")
     print("What device type is this?\n")
+    print("  ── Juniper ───────────────────────────────────────────")
     print("  1. EX Switch        (NDM + L2S + RTR — ~182 rules)")
     print("  2. SRX Gateway      (NDM + ALG + VPN + IDPS — ~149 rules)")
-    print("  3. Router           (NDM + RTR — ~145 rules)")
-    print("  4. All rules        (628 rules — slowest, most expensive)")
+    print("  3. Juniper Router   (NDM + RTR — ~145 rules)")
+    print("  ── Cisco ─────────────────────────────────────────────")
+    print("  4. Cisco Switch     (IOS + IOS XE + NX-OS)")
+    print("  5. Cisco Router     (IOS + IOS XE + IOS XR)")
+    print("  ── All ───────────────────────────────────────────────")
+    print("  6. All rules        (slowest, most expensive)")
     print("")
     dev_choice = input("  Enter choice (default 1): ").strip()
-    dev_map = {"1": "ex", "2": "srx", "3": "router", "4": None}
+    dev_map = {"1": "ex", "2": "srx", "3": "router",
+               "4": "cisco_switch", "5": "cisco_router", "6": None}
     device_type = dev_map.get(dev_choice, "ex")
 
     print("")
